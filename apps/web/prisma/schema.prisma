@@ -1,0 +1,68 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Product {
+  id          String    @id @default(cuid())
+  name        String
+  category    String    @default("All")
+  description String?
+  usps        String[]
+  brandUrl    String?
+  logoUrl     String?
+  colors      String[]
+  images      String[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  projects    Project[]
+}
+
+model Project {
+  id        String   @id @default(cuid())
+  name      String
+  script    String?
+  ratio     String   @default("9:16")
+  style     String   @default("modern")
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
+  ads       Ad[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Ad {
+  id        String   @id @default(cuid())
+  title     String
+  imageUrl  String
+  category  String   @default("All")
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SmartAsset {
+  id        String   @id @default(cuid())
+  title     String
+  imageUrl  String
+  createdAt DateTime @default(now())
+}
+
+model GeneratedImage {
+  id                String   @id @default(cuid())
+  taskId            String   @unique
+  userPrompt        String
+  fullPrompt        String
+  generatedImageUrl String
+  originalImageUrl  String?
+  aspectRatio       String   @default("auto")
+  resolution        String   @default("1K")
+  savedToAssets     Boolean  @default(false)
+  smartAssetId      String?
+  createdAt         DateTime @default(now())
+}
