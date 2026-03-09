@@ -24,4 +24,15 @@ const customConfig = {
   ],
 }
 
-module.exports = createJestConfig(customConfig)
+// Async export so we can override next/jest's transformIgnorePatterns.
+// cheerio v1.x ships as ESM — we must allow Jest/SWC to transform it
+// and its transitive dependencies.
+module.exports = async () => {
+  const base = await createJestConfig(customConfig)()
+  return {
+    ...base,
+    transformIgnorePatterns: [
+      'node_modules/(?!(cheerio|parse5|htmlparser2|entities|css-select|css-what|boolbase|nth-check|dom-serializer|domelementtype|domhandler|domutils)/)',
+    ],
+  }
+}

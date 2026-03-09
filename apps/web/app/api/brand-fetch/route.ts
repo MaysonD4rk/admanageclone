@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { analyzeBrandUrl } from '@/lib/services/brand-fetch.service'
+import { detectPlatform } from '@/lib/services/scraper.service'
 import { ValidationError, toErrorResponse } from '@/lib/errors'
 
 export async function POST(request: NextRequest) {
@@ -10,11 +11,18 @@ export async function POST(request: NextRequest) {
       throw new ValidationError('url is required')
     }
 
-    // Simulate network delay for realistic UX
-    await new Promise((r) => setTimeout(r, 1500))
+    const platform = detectPlatform(url)
+    console.info(`[brand-fetch] Analyzing ${platform} URL: ${url}`)
 
-    const brandData = await analyzeBrandUrl(url)
-    return NextResponse.json(brandData)
+    // Real scraping + product creation (no artificial delay — scraping takes real time)
+    const result = await analyzeBrandUrl(url)
+
+    return NextResponse.json({
+      ...result,
+      // Expose platform so the UI can display the detected marketplace
+      platform,
+      scrapingSucceeded: !!(result.scrapedProduct?.images?.length),
+    })
   } catch (error) {
     if (error instanceof ValidationError) {
       return NextResponse.json(toErrorResponse(error), { status: 400 })

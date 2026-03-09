@@ -85,6 +85,27 @@ export interface GenerateAdsInput extends CreateProjectInput {
   referenceAssets?: string[]
 }
 
+// ─── Web Scraping ─────────────────────────────────────────
+
+export type ScrapingPlatform = 'amazon' | 'mercadolivre' | 'generic'
+
+/** Product data extracted from an e-commerce URL */
+export interface ScrapedProduct {
+  platform: ScrapingPlatform
+  url: string
+  /** Extracted product image URLs (product photos only, no logos/icons) */
+  images: string[]
+  /** Product title if successfully extracted */
+  title?: string
+}
+
+export interface ScrapingResult {
+  success: boolean
+  product?: ScrapedProduct
+  /** Human-readable error message when success is false */
+  error?: string
+}
+
 // ─── NanoBanana API ───────────────────────────────────────
 
 export type AspectRatio = '1:1' | '9:16' | '16:9' | 'auto'

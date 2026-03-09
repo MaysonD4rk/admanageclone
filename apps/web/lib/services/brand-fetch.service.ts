@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db'
-import type { BrandData, CreateProductInput } from '@/lib/types'
+import { scrapeProduct } from '@/lib/services/scraper.service'
+import type { BrandData, CreateProductInput, ScrapedProduct } from '@/lib/types'
 
 // ─── Pure utility functions (fully testable without DB) ───
 
@@ -77,11 +78,32 @@ export async function createProductFromBrand(
 }
 
 /**
- * Full brand-fetch flow: build data + persist.
+ * Full brand-fetch flow:
+ *  1. Scrape the product page for real images + title
+ *  2. Merge with deterministic brand data (colors, logo — still mocked)
+ *  3. Persist to DB and return
+ *
+ * If scraping fails the flow continues with placeholder images so the user
+ * experience is never blocked.
  */
-export async function analyzeBrandUrl(url: string): Promise<BrandData> {
-  const brandData = buildBrandData(url)
-  return createProductFromBrand(url, brandData)
+export async function analyzeBrandUrl(url: string): Promise<BrandData & { scrapedProduct?: ScrapedProduct }> {
+  // Base brand data (colors, logo placeholder derived from domain)
+  const base = buildBrandData(url)
+
+  // Real product scraping (never throws — returns fallback on error)
+  const scrapingResult = await scrapeProduct(url)
+  const scraped = scrapingResult.product
+
+  const merged = {
+    ...base,
+    // Use real scraped images when available, keep placeholders otherwise
+    images: scraped?.images && scraped.images.length > 0 ? scraped.images : base.images,
+    // Use product title as brand name when successfully scraped
+    name: scraped?.title ? scraped.title.slice(0, 80).trim() : base.name,
+  }
+
+  const result = await createProductFromBrand(url, merged)
+  return { ...result, scrapedProduct: scraped }
 }
 
 /**
