@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
-import { Loader2, Wand2, X, Sparkles } from 'lucide-react'
+import { Loader2, Wand2, X, Sparkles, ArrowRight, AlertCircle } from 'lucide-react'
 import type { BrandData } from './BrandFetchModal'
 import type { Ad } from '../home/AdCard'
 import SmartAssetsPicker from '@/components/smart-assets/SmartAssetsPicker'
@@ -15,8 +15,11 @@ interface RecreateModalProps {
   sourceAd?: Ad | null
 }
 
+type Step = 'form' | 'results'
+
 export default function RecreateModal({ isOpen, onClose, brandData, sourceAd }: RecreateModalProps) {
   const router = useRouter()
+  const [step, setStep] = useState<Step>('form')
   const [campaignName, setCampaignName] = useState(
     sourceAd ? `${sourceAd.title} — Recreated` : brandData?.name ? `${brandData.name} Campaign` : ''
   )
@@ -28,10 +31,24 @@ export default function RecreateModal({ isOpen, onClose, brandData, sourceAd }: 
   )
   const [selectedAssetUrls, setSelectedAssetUrls] = useState<string[]>([])
   const [isGenerating, setIsGenerating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [generatedAds, setGeneratedAds] = useState<Ad[]>([])
+  const [generatedProjectId, setGeneratedProjectId] = useState<string | null>(null)
 
   const handleClose = () => {
     setIsGenerating(false)
+    setError(null)
+    setStep('form')
+    setGeneratedAds([])
+    setGeneratedProjectId(null)
     onClose()
+  }
+
+  const handleRegenerate = () => {
+    setStep('form')
+    setGeneratedAds([])
+    setGeneratedProjectId(null)
+    setError(null)
   }
 
   const toggleAsset = (url: string) =>
@@ -40,13 +57,14 @@ export default function RecreateModal({ isOpen, onClose, brandData, sourceAd }: 
   const handleGenerate = async () => {
     if (!campaignName.trim()) return
     setIsGenerating(true)
+    setError(null)
     try {
       const res = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: campaignName.trim(),
-          script: analysis.trim(),
+          script: analysis.trim() || null,
           description: description.trim() || null,
           referenceAssets: selectedAssetUrls,
           ratio: '9:16',
@@ -56,9 +74,23 @@ export default function RecreateModal({ isOpen, onClose, brandData, sourceAd }: 
         }),
       })
       const data = await res.json()
-      handleClose()
-      router.push(`/projects/${data.projectId}`)
+      if (!res.ok) {
+        setError(data.error ?? 'Generation failed. Please try again.')
+        setIsGenerating(false)
+        return
+      }
+      if (!data.ads || data.ads.length === 0) {
+        setError('No images were generated. The NanoBanana API did not return any results.')
+        setIsGenerating(false)
+        return
+      }
+      // Display images directly from the API response — never re-fetch from DB
+      setGeneratedAds(data.ads)
+      setGeneratedProjectId(data.projectId ?? null)
+      setStep('results')
     } catch {
+      setError('Something went wrong. Please try again.')
+    } finally {
       setIsGenerating(false)
     }
   }
@@ -67,6 +99,83 @@ export default function RecreateModal({ isOpen, onClose, brandData, sourceAd }: 
 
   const hasSourceImage = !!sourceAd?.imageUrl
 
+  // ── Results step ──────────────────────────────────────────
+  if (step === 'results') {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={handleClose} />
+        <div
+          className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-2xl animate-slide-up w-full max-w-2xl flex flex-col overflow-hidden"
+          style={{ maxHeight: '92vh' }}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-violet-500" />
+              <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+                {generatedAds.length} Variation{generatedAds.length !== 1 ? 's' : ''} Generated
+              </h2>
+            </div>
+            <button
+              onClick={handleClose}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Image grid — real NanoBanana results */}
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="grid grid-cols-2 gap-4">
+              {generatedAds.map((ad, i) => (
+                <div key={ad.id ?? i} className="space-y-1.5">
+                  <div className="relative aspect-[9/16] rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-700">
+                    <Image
+                      src={ad.imageUrl}
+                      alt={ad.title}
+                      fill
+                      className="object-cover"
+                      sizes="(max-width: 672px) 50vw, 280px"
+                      priority={i < 2}
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 text-center font-medium">{ad.title}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="flex gap-3 px-6 py-4 border-t border-gray-100 dark:border-gray-700 flex-shrink-0">
+            <button
+              onClick={handleRegenerate}
+              className="px-4 py-2.5 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >
+              Regenerate
+            </button>
+            {generatedProjectId && (
+              <button
+                onClick={() => { handleClose(); router.push(`/projects/${generatedProjectId}`) }}
+                className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white font-semibold text-sm py-2.5 rounded-xl transition-all shadow-sm shadow-violet-200"
+              >
+                View Project <ArrowRight className="w-4 h-4" />
+              </button>
+            )}
+            {!generatedProjectId && (
+              <button
+                onClick={handleClose}
+                className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 text-white font-semibold text-sm rounded-xl transition-colors"
+              >
+                Done
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Form step ─────────────────────────────────────────────
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={handleClose} />
@@ -88,17 +197,12 @@ export default function RecreateModal({ isOpen, onClose, brandData, sourceAd }: 
               sizes="480px"
               priority
             />
-            {/* Gradient overlays */}
             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-black/30" />
-
-            {/* Top-left label */}
             <div className="absolute top-4 left-4">
               <span className="px-2.5 py-1 bg-white/15 backdrop-blur-sm text-white/80 text-[10px] font-semibold uppercase tracking-wider rounded-full border border-white/20">
                 Source Ad
               </span>
             </div>
-
-            {/* Bottom info */}
             <div className="absolute bottom-0 left-0 right-0 p-5">
               <p className="text-white font-bold text-lg leading-tight drop-shadow">{sourceAd.title}</p>
               <div className="flex items-center gap-2 mt-2">
@@ -198,22 +302,30 @@ export default function RecreateModal({ isOpen, onClose, brandData, sourceAd }: 
           </div>
 
           {/* Footer */}
-          <div className="flex gap-3 px-6 py-4 border-t border-gray-100 dark:border-gray-700 flex-shrink-0">
-            <button
-              onClick={handleClose}
-              className="px-4 py-2.5 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleGenerate}
-              disabled={isGenerating || !campaignName.trim()}
-              className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 disabled:opacity-60 text-white font-semibold text-sm py-2.5 rounded-xl transition-all shadow-sm shadow-violet-200"
-            >
-              {isGenerating
-                ? <><Loader2 className="w-4 h-4 animate-spin" /> Generating...</>
-                : <><Wand2 className="w-4 h-4" /> Generate 4 Variations</>}
-            </button>
+          <div className="flex flex-col gap-2 px-6 py-4 border-t border-gray-100 dark:border-gray-700 flex-shrink-0">
+            {error && (
+              <div className="flex items-start gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl">
+                <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
+              </div>
+            )}
+            <div className="flex gap-3">
+              <button
+                onClick={handleClose}
+                className="px-4 py-2.5 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleGenerate}
+                disabled={isGenerating || !campaignName.trim()}
+                className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 disabled:opacity-60 text-white font-semibold text-sm py-2.5 rounded-xl transition-all shadow-sm shadow-violet-200"
+              >
+                {isGenerating
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Generating...</>
+                  : <><Wand2 className="w-4 h-4" /> Generate 4 Variations</>}
+              </button>
+            </div>
           </div>
         </div>
       </div>

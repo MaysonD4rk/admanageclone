@@ -20,6 +20,7 @@ import {
   callNanoBananaAPI,
   isTransientError,
 } from '@/lib/services/nanobanana.service'
+import { NanoBananaError } from '@/lib/errors'
 import type { GenerateAdsInput, GenerateAdsResult, Ad } from '@/lib/types'
 
 // ─── Variation contexts ───────────────────────────────────
@@ -101,7 +102,7 @@ async function generateRealVariations(
   projectId: string,
   referenceImages: string[],
 ): Promise<Ad[]> {
-  const basePrompt = buildAdPrompt(input.script ?? input.name ?? 'advertising image')
+  const basePrompt = buildAdPrompt(input.script?.trim() || input.name?.trim() || 'advertising image')
 
   const variationPromises = AD_VARIATION_CONTEXTS.map((context, index) =>
     withRetry(
@@ -210,7 +211,11 @@ export async function generateAdCampaign(input: GenerateAdsInput): Promise<Gener
   const ads = await generateRealVariations(input, projectId, referenceImages)
 
   if (ads.length === 0) {
-    console.error('[generate] All NanoBanana variations failed for project:', projectId)
+    throw new NanoBananaError(
+      'All image generations failed. Check your NanoBanana API key and try again.',
+      'ALL_VARIATIONS_FAILED',
+      502,
+    )
   }
 
   return { projectId, ads }

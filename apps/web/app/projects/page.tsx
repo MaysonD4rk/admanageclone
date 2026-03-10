@@ -4,8 +4,6 @@ import { useState, useEffect } from 'react'
 import { FolderOpen, Plus } from 'lucide-react'
 import Link from 'next/link'
 import ProjectCard from '@/components/projects/ProjectCard'
-import { MOCK_PROJECTS } from '@/lib/mock-data'
-
 type Project = Parameters<typeof ProjectCard>[0]['project']
 
 export default function ProjectsPage() {
@@ -14,9 +12,9 @@ export default function ProjectsPage() {
 
   useEffect(() => {
     fetch('/api/projects')
-      .then((r) => r.json())
-      .then((data) => setProjects(data))
-      .catch(() => setProjects(MOCK_PROJECTS as Project[]))
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => setProjects(Array.isArray(data) ? data : []))
+      .catch(() => setProjects([]))
       .finally(() => setIsLoading(false))
   }, [])
 
