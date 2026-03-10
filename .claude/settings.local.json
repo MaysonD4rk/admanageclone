@@ -6,7 +6,8 @@
       "Bash(npx prisma:*)",
       "Bash(npm run:*)",
       "Bash(npm test:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(git add:*)"
     ]
   }
 }

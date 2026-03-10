@@ -30,14 +30,6 @@ interface AddProductModalProps {
   onCreated: (product: CreatedProduct) => void
 }
 
-// Simple hash to get a deterministic picsum seed from a string
-function strToSeed(str: string): string {
-  let h = 0
-  for (let i = 0; i < str.length; i++) {
-    h = (Math.imul(31, h) + str.charCodeAt(i)) >>> 0
-  }
-  return (h % 9999).toString()
-}
 
 export default function AddProductModal({ isOpen, onClose, onCreated }: AddProductModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -101,19 +93,27 @@ export default function AddProductModal({ isOpen, onClose, onCreated }: AddProdu
 
   const removeAsset = (id: string) => setAssets((p) => p.filter((a) => a.id !== id))
 
-  // AI asset generation (mock — generates a deterministic picsum image)
+  // AI asset generation via NanoBanana
   const handleGenerateAsset = async () => {
     if (!aiPrompt.trim()) return
     setIsGeneratingAsset(true)
     setGeneratedPreview(null)
 
-    // Simulate AI generation delay
-    await new Promise((r) => setTimeout(r, 1800))
-
-    const seed = strToSeed(`${aiPrompt}${Date.now()}`)
-    const url = `https://picsum.photos/seed/ai${seed}/400/400`
-    setGeneratedPreview(url)
-    setIsGeneratingAsset(false)
+    try {
+      const res = await fetch('/api/generate-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userPrompt: aiPrompt.trim(), aspectRatio: '1:1', resolution: '1K' }),
+      })
+      const data = await res.json()
+      if (res.ok && data.generatedImage?.generatedImageUrl) {
+        setGeneratedPreview(data.generatedImage.generatedImageUrl)
+      }
+    } catch {
+      // silently fail — user can retry
+    } finally {
+      setIsGeneratingAsset(false)
+    }
   }
 
   const addToSmartAssets = () => {

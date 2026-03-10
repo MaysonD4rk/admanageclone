@@ -14,6 +14,7 @@ export const prismaMock = {
   },
   product: {
     findMany: jest.fn(),
+    findUnique: jest.fn(),
     create: jest.fn(),
   },
   project: {

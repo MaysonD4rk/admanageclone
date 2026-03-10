@@ -17,6 +17,12 @@ import type { NanoBananaRequest, NanoBananaResponse, AspectRatio, Resolution } f
 const NANOBANANA_ENDPOINT =
   'https://api.nanobananaapi.ai/api/v1/nanobanana/generate-2'
 
+const NANOBANANA_RESULT_ENDPOINT =
+  'https://api.nanobananaapi.ai/api/v1/nanobanana/record-info'
+
+const POLL_INTERVAL_MS = 5_000
+const POLL_TIMEOUT_MS = 110_000 // just under the 120s maxDuration
+
 /** Resolved at runtime so tests can override via env mocks */
 function getApiKey(): string {
   const key = process.env.NANOBANANA_API_KEY
@@ -94,6 +100,8 @@ export function buildNanoBananaRequest(
  */
 export function isTransientError(error: unknown): boolean {
   if (error instanceof NanoBananaError) {
+    // Never retry quota/auth/client errors — only transient server errors
+    if (error.statusCode === 402 || error.statusCode === 401 || error.statusCode === 400) return false
     return error.statusCode >= 500
   }
   if (error instanceof TypeError) {
@@ -116,18 +124,22 @@ export function isTransientError(error: unknown): boolean {
 // ─── API call ─────────────────────────────────────────────
 
 /**
- * Call the NanoBanana generate endpoint.
+ * Submit a generation task to NanoBanana and poll until the image is ready.
  *
- * @throws {NanoBananaError} on HTTP errors or when successFlag !== 1
+ * Flow:
+ *  1. POST /generate-2 → { code: 200, data: { taskId } }
+ *  2. Poll GET /record-info?taskId every POLL_INTERVAL_MS
+ *  3. successFlag 0 = still processing, 1 = done, 2/3 = failed
  */
 export async function callNanoBananaAPI(
   request: NanoBananaRequest,
 ): Promise<NanoBananaResponse> {
   const apiKey = getApiKey()
 
-  let httpResponse: Response
+  // ── Step 1: Submit the task ───────────────────────────────
+  let submitResponse: Response
   try {
-    httpResponse = await fetch(NANOBANANA_ENDPOINT, {
+    submitResponse = await fetch(NANOBANANA_ENDPOINT, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -136,37 +148,80 @@ export async function callNanoBananaAPI(
       body: JSON.stringify(request),
     })
   } catch (cause) {
-    // Network-level failure (no response received)
     throw new NanoBananaError(
-      `Network error calling NanoBanana: ${cause instanceof Error ? cause.message : String(cause)}`,
+      `Network error submitting to NanoBanana: ${cause instanceof Error ? cause.message : String(cause)}`,
       'NETWORK_ERROR',
       503,
     )
   }
 
-  if (!httpResponse.ok) {
+  if (!submitResponse.ok) {
     throw new NanoBananaError(
-      `NanoBanana API returned HTTP ${httpResponse.status}`,
-      `HTTP_${httpResponse.status}`,
-      httpResponse.status >= 500 ? 502 : 400,
+      `NanoBanana submit returned HTTP ${submitResponse.status}`,
+      `HTTP_${submitResponse.status}`,
+      submitResponse.status >= 500 ? 502 : 400,
     )
   }
 
-  const data: NanoBananaResponse = await httpResponse.json()
+  const submitRaw = await submitResponse.json()
 
-  if (data.successFlag !== 1) {
-    console.error('[nanobanana] Generation failed:', {
-      errorCode: data.errorCode,
-      errorMessage: data.errorMessage,
-      taskId: data.taskId,
-    })
+  if (submitRaw.code !== 200 || !submitRaw.data?.taskId) {
     throw new NanoBananaError(
-      data.errorMessage ?? 'NanoBanana generation failed',
-      data.errorCode,
-      502,
-      data.taskId,
+      submitRaw.msg ?? `NanoBanana submit error (code ${submitRaw.code})`,
+      String(submitRaw.code),
+      submitRaw.code === 402 ? 402 : 502,
     )
   }
 
-  return data
+  const taskId: string = submitRaw.data.taskId
+  console.log(`[nanobanana] Task submitted: ${taskId}`)
+
+  // ── Step 2: Poll for result ───────────────────────────────
+  const deadline = Date.now() + POLL_TIMEOUT_MS
+
+  while (Date.now() < deadline) {
+    await sleep(POLL_INTERVAL_MS)
+
+    let pollResponse: Response
+    try {
+      pollResponse = await fetch(`${NANOBANANA_RESULT_ENDPOINT}?taskId=${taskId}`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      })
+    } catch {
+      // Network hiccup — keep polling
+      continue
+    }
+
+    if (!pollResponse.ok) continue
+
+    const result = await pollResponse.json() as NanoBananaResponse
+
+    if (result.successFlag === 1) {
+      console.log(`[nanobanana] Task ${taskId} complete: ${result.response?.resultImageUrl}`)
+      return result
+    }
+
+    if (result.successFlag === 2 || result.successFlag === 3) {
+      throw new NanoBananaError(
+        result.errorMessage ?? `NanoBanana task ${taskId} failed (flag ${result.successFlag})`,
+        result.errorCode,
+        502,
+        taskId,
+      )
+    }
+
+    // successFlag === 0: still generating, keep polling
+    console.log(`[nanobanana] Task ${taskId} still processing...`)
+  }
+
+  throw new NanoBananaError(
+    `NanoBanana task ${taskId} timed out after ${POLL_TIMEOUT_MS / 1000}s`,
+    'TIMEOUT',
+    504,
+    taskId,
+  )
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }

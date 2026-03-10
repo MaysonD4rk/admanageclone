@@ -2,7 +2,9 @@
   "name": "admanage-monorepo",
   "version": "1.0.0",
   "private": true,
-  "workspaces": ["apps/*"],
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
     "dev": "npm run dev --workspace=apps/web",
     "build": "npm run build --workspace=apps/web",
@@ -11,5 +13,8 @@
     "db:migrate": "npm run db:migrate --workspace=apps/web",
     "db:seed": "npm run db:seed --workspace=apps/web",
     "db:studio": "npm run db:studio --workspace=apps/web"
+  },
+  "dependencies": {
+    "cheerio": "^1.2.0"
   }
 }
